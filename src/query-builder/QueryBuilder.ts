@@ -621,14 +621,28 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
         }
         const sortedData = this.sort(data as any);
         data = sortedData as (T & { _id: string, _rev: string })[];
-        const result = [] as T[];
-        for (const item of data) {
-            const model = await this.cast(item as unknown as ModelType<T>);
+        // const result = [] as T[];
+        // for (const item of data) {
+        //     const model = await this.cast(item as unknown as ModelType<T>);
+        //     if (this.period && model?._meta) {
+        //         model._meta._period = this.period;
+        //     }
+        //     if (model) result.push(model);
+        // }
+
+        const castedData = data.map(item => this.cast(item as unknown as ModelType<T>))
+
+        let result = (await Promise.all(castedData)).filter(Boolean) as T[]
+
+        result.forEach(model => {
+            if (!model) return
+
             if (this.period && model?._meta) {
                 model._meta._period = this.period;
             }
-            if (model) result.push(model);
-        }
+            result.push(model)
+        })
+
         return result;
     }
 
