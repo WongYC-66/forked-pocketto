@@ -630,18 +630,15 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
         //     if (model) result.push(model);
         // }
 
-        const castedData = data.map(item => this.cast(item as unknown as ModelType<T>))
+        const castedData = data.map(item => this.cast(item as unknown as ModelType<T>));
 
-        let result = (await Promise.all(castedData)).filter(Boolean) as T[]
+        const result = (await Promise.all(castedData)).filter(Boolean) as T[];
 
         result.forEach(model => {
-            if (!model) return
-
             if (this.period && model?._meta) {
                 model._meta._period = this.period;
             }
-            result.push(model)
-        })
+        });
 
         return result;
     }
