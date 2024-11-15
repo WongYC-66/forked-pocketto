@@ -382,7 +382,7 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
         return data;
     }
 
-    private async queryRawDocument() {
+    private async queryRawDocument(): Promise<T[]> {
         if (this.isMultiDatabase) {
             const multiQb = new MultiQueryBuilder(this.model, this.relationships);
             multiQb.setQueryBuilder(this);
@@ -404,7 +404,7 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
         }
         console.log('mangoQuery - end');
         console.log(util.inspect(data, { showHidden: false, depth: null, colors: true, }));
-        return data
+        return data as T[]
     }
 
     private async eagerLoadRelationshipData() {
