@@ -8,9 +8,12 @@ import { DatabaseCustomConfig, DatabaseManager } from 'src/manager/DatabaseManag
 import { getNewId } from 'src/id/Id';
 import { BaseModel } from 'src/model/Model';
 import { MultiQueryBuilder } from 'src/multi-database/MultiQueryBuilder';
-import { convertIdFieldsToDocIds, getForeignIdFields } from 'src/relationships/RelationshipDecorator';
+import { convertIdFieldsToDocIds, getForeignIdFields, getRelationships } from 'src/relationships/RelationshipDecorator';
 import { ApiRepo } from 'src/repo/ApiRepo';
 import { ShardingMode } from 'src/multi-database/MultiDatabaseConfig';
+
+import util from 'util';
+import { classes } from 'src/model/ModelDecorator';
 
 const operators = ['=', '>', '>=', '<', '<=', '!=', 'in', 'not in', 'between', 'like',] as const;
 export type Operator = typeof operators[number];
@@ -379,9 +382,70 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
         return data;
     }
 
+    private async queryRawDocument() {
+        if (this.isMultiDatabase) {
+            const multiQb = new MultiQueryBuilder(this.model, this.relationships);
+            multiQb.setQueryBuilder(this);
+            return multiQb.get();
+        }
+
+        const db = DatabaseManager.get(this.dbName) as PouchDB.Database<T> & DatabaseCustomConfig;
+        if (!db) {
+            throw new Error(`Database ${this.dbName} not found`);
+        }
+        let data;
+        console.log('mangoQuery - start');
+        console.log('this.queries : ');
+        console.log(util.inspect(this.queries, { showHidden: false, depth: null, colors: true, }));
+        if (db.hasPassword) {
+            data = await this.jsSearch();
+        } else {
+            data = await this.mangoQuery(db);
+        }
+        console.log('mangoQuery - end');
+        console.log(util.inspect(data, { showHidden: false, depth: null, colors: true, }));
+        return data
+    }
+
+    private async eagerLoadRelationshipData() {
+        const returnData = {};
+        if (!this.relationships) return returnData;
+
+        const relationshipNameToModel = getRelationships(this.model);
+
+        const promiseArr: Promise<any>[] = []
+
+        this.relationships.forEach(async (relationshipName) => {
+            // Match relationshipname to new Query get All
+            for (let name of relationshipName.split(".")) {
+                // translate user customRelationship name to ModelName
+                // e.g. "Author" => "User"
+                const modelName = relationshipNameToModel[name][1][0];
+
+                // build a new Model instance for query
+                const model = classes[modelName]
+                const queryModel = new model()
+
+                // build a query for this name
+                const subQuery = new QueryBuilder(queryModel, [], model.dbName)
+                console.log({ subQuery })
+
+                // execute query to get All
+                promiseArr.push(subQuery.queryRawDocument())
+            }
+        });
+
+        const tmp = await Promise.all(promiseArr)
+        console.log({ tmp })
+
+        return returnData;
+    }
+
     private async bindRelationship(model: T) {
         if (!model.relationships) model.relationships = {};
         model.bindRelationships();
+        console.log('this.relationships -> ', this.relationships);
+        console.log('model.relationships -> ', model.relationships);
         if (this.relationships && model.relationships) {
             for (const r of this.relationships) {
                 try {
@@ -396,11 +460,13 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
                             model[mainRelationship as keyof T] = newMainModel as ModelValue<T, keyof T>;
                         } else if (mainModel && mainModel instanceof Array) {
                             const newMainModels = await Promise.all(mainModel.map(async (m) => await new QueryBuilder(m, [subRelationships,], this.dbName)
+                                // const newMainModels = await Promise.all(mainModel.map(m => new QueryBuilder(m, [subRelationships,], this.dbName)
                                 .orderBy('createdAt', 'asc')
                                 .bindRelationship(m)));
                             model[mainRelationship as keyof T] = newMainModels as ModelValue<T, keyof T>;
                         }
                     } else {
+                        console.log('bind - no dot - ', r);
                         const queryBuilder = await model.relationships[r as string]() as QueryBuilder<T>;
                         queryBuilder.orderBy('createdAt', 'asc');
                         if (queryBuilder.isOne) {
@@ -419,21 +485,21 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
 
     protected async cast(item?: ModelType<T>): Promise<T | undefined> {
         if (!item) return;
-        let model;
+        // let model;
         const klass = this.model.getClass();
         if ((item as ModelType<T> & { _id: string })._id) {
             item.id = (item as ModelType<T> & { _id: string })._id;
             delete (item as ModelType<T> & { _id?: string })._id;
         }
-        model = new klass(item) as T;
+        let model = new klass(item) as T;
         model._meta._dirty = new Set<string>();
         model._meta._before_dirty = {};
         if (model._tempPeriod) {
             model._meta._period = model._tempPeriod;
             delete model._tempPeriod;
         }
-        model = await this.bindRelationship(model);
-        model.setForeignFieldsToModelId();
+        model = await this.bindRelationship(model); // to be remove out
+        model.setForeignFieldsToModelId();      // to be remove out
         return model;
     }
 
@@ -603,22 +669,29 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
         //     });
         // }
 
-        if (this.isMultiDatabase) {
-            const multiQb = new MultiQueryBuilder(this.model, this.relationships);
-            multiQb.setQueryBuilder(this);
-            return multiQb.get();
-        }
+        // if (this.isMultiDatabase) {
+        //     const multiQb = new MultiQueryBuilder(this.model, this.relationships);
+        //     multiQb.setQueryBuilder(this);
+        //     return multiQb.get();
+        // }
 
-        const db = DatabaseManager.get(this.dbName) as PouchDB.Database<T> & DatabaseCustomConfig;
-        if (!db) {
-            throw new Error(`Database ${this.dbName} not found`);
-        }
-        let data;
-        if (db.hasPassword) {
-            data = await this.jsSearch();
-        } else {
-            data = await this.mangoQuery(db);
-        }
+        // const db = DatabaseManager.get(this.dbName) as PouchDB.Database<T> & DatabaseCustomConfig;
+        // if (!db) {
+        //     throw new Error(`Database ${this.dbName} not found`);
+        // }
+        // let data;
+        // console.log('mangoQuery - start');
+        // console.log('this.queries : ');
+        // console.log(util.inspect(this.queries, { showHidden: false, depth: null, colors: true, }));
+        // if (db.hasPassword) {
+        //     data = await this.jsSearch();
+        // } else {
+        //     data = await this.mangoQuery(db);
+        // }
+        // console.log('mangoQuery - end');
+        // console.log(util.inspect(data, { showHidden: false, depth: null, colors: true, }));
+
+        let data = await this.queryRawDocument()
         const sortedData = this.sort(data as any);
         data = sortedData as (T & { _id: string, _rev: string })[];
         // const result = [] as T[];
@@ -630,15 +703,19 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
         //     if (model) result.push(model);
         // }
 
+
+        console.log({ classes, });
+        console.log(getRelationships(this.model));
+        // const eagerLoadedData = await this.eagerLoadRelationshipData();
+        // console.log({ eagerLoadedData })
+
+        console.log('----as usual in html----');
         const castedData = data.map(item => this.cast(item as unknown as ModelType<T>));
 
         const result = (await Promise.all(castedData)).filter(Boolean) as T[];
 
-        result.forEach(model => {
-            if (this.period && model?._meta) {
-                model._meta._period = this.period;
-            }
-        });
+        if (this.period)
+            result.forEach(model => model._meta._period = this.period);
 
         return result;
     }
