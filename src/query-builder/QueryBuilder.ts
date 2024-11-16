@@ -383,6 +383,10 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
     }
 
     private async queryRawDocument(): Promise<T[]> {
+        this.queries.selector.$and.push({
+            _id: { $regex: `^${this.model.cName}`, },
+        });
+
         if (this.isMultiDatabase) {
             const multiQb = new MultiQueryBuilder(this.model, this.relationships);
             multiQb.setQueryBuilder(this);
@@ -397,6 +401,7 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
         console.log('mangoQuery - start');
         console.log('this.queries : ');
         console.log(util.inspect(this.queries, { showHidden: false, depth: null, colors: true, }));
+        // console.log(this)
         if (db.hasPassword) {
             data = await this.jsSearch();
         } else {
@@ -424,11 +429,11 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
 
                 // build a new Model instance for query
                 const model = classes[modelName]
-                const queryModel = new model()
+                const queryModel = new classes[modelName]()
 
                 // build a query for this name
                 const subQuery = new QueryBuilder(queryModel, [], model.dbName)
-                console.log({ subQuery })
+                // console.log({ subQuery })
 
                 // execute query to get All
                 promiseArr.push(subQuery.queryRawDocument())
@@ -652,9 +657,7 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
     }
 
     async get(): Promise<T[]> {
-        this.queries.selector.$and.push({
-            _id: { $regex: `^${this.model.cName}`, },
-        });
+
 
         // TODO: Due to PouchDB cannot accept this param, comment it first. Later need to fix
         // if (this.softDelete === 'none') {
@@ -706,8 +709,8 @@ export class QueryBuilder<T extends BaseModel, K extends string[] = []> {
 
         console.log({ classes, });
         console.log(getRelationships(this.model));
-        // const eagerLoadedData = await this.eagerLoadRelationshipData();
-        // console.log({ eagerLoadedData })
+        const eagerLoadedData = await this.eagerLoadRelationshipData();
+        console.log({ eagerLoadedData })
 
         console.log('----as usual in html----');
         const castedData = data.map(item => this.cast(item as unknown as ModelType<T>));
